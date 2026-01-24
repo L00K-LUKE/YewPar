@@ -14,6 +14,8 @@ add_hpx_library(YewPar
   workstealing/policies/PriorityOrdered.cpp
   workstealing/policies/DepthPoolPolicy.hpp
   workstealing/policies/DepthPoolPolicy.cpp
+  workstealing/policies/BufferedWorkpool.hpp
+  workstealing/policies/BufferedWorkpool.cpp
   util/util.hpp
   util/util.cpp
 
