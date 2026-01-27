@@ -98,27 +98,27 @@ hpx::function<void(), false> BufferedWorkpool::getWork()
   task_type task;
 
   // Try to get locally
-  if (!st.local.empty()) {
-    tast_type task = std::move(st.local_tasks.back());
+  if (!st.local_tasks.empty()) {
+    task_type task = std::move(st.local_tasks.back());
     st.local_tasks.pop_back();
     return hpx::bind(std::move(task), hpx::find_here());
   }
 
   // No local tasks, so refil local buffer with chunks from the locality workqueue
-  for (std::size_t i = 0; i < CHUNK_SIZE && st.local.size() < LOCAL_CAPACITY; i++) {
+  for (std::size_t i = 0; i < CHUNK_SIZE && st.local_tasks.size() < LOCAL_CAPACITY; i++) {
     task_type task =
       hpx::async<workstealing::Workqueue::getLocal_action>(local_workqueue).get();
     
     if (!task) break;
 
     BufferedWorkpoolPerf::perf_localSteals++;
-    st.local.push_back(std::move(t));
+    st.local_tasks.push_back(std::move(task));
   }
 
   // After steal, try again
-  if (!st.local.empty()) {
-    task_type t = std::move(st.local.back());
-    st.local.pop_back();
+  if (!st.local_tasks.empty()) {
+    task_type t = std::move(st.local_tasks.back());
+    st.local_tasks.pop_back();
     return hpx::bind(std::move(t), hpx::find_here());
   }
 
@@ -151,7 +151,6 @@ hpx::function<void(), false> BufferedWorkpool::getWork()
   }
 
   return nullptr;
-
 }
 
 
@@ -165,14 +164,14 @@ void BufferedWorkpool::addwork(task_type task) {
   st.local_tasks.push_back(std::move(task));
 
   // Spill if buffer is getting too big
-  if (st.local_tasks.size() > SPILL_THESHOLD) {
+  if (st.local_tasks.size() > SPILL_LIMIT) {
     const std::size_t spill_count =
       std::min<std::size_t>( CHUNK_SIZE, st.local_tasks.size());
 
     for (std::size_t i = 0; i < spill_count; i++) {
-      task_type task = std::move(st.local.front());
+      task_type task = std::move(st.local_tasks.front());
       st.local_tasks.pop_front();
-      hpx::post<workstealing::Workqueue::addWork_action>(local_workqueue, std::move(t));
+      hpx::post<workstealing::Workqueue::addWork_action>(local_workqueue, std::move(task));
     }
   }
 }
