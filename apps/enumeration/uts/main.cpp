@@ -280,7 +280,7 @@ int hpx_main(hpx::program_options::variables_map & opts) {
                                             YewPar::Skeletons::API::Enumerator<CountNodes>,
                                             YewPar::Skeletons::API::DepthLimited,
                                             YewPar::Skeletons::API::DepthBoundedPoolPolicy<
-                                              YewPar::WorkStealing::Policies::BufferedWorkpool> >
+                                              Workstealing::Policies::BufferedWorkpool> >
              ::search(params, root, searchParameters);
   }
   
