@@ -11,6 +11,8 @@
 #include "skeletons/StackStealing.hpp"
 #include "skeletons/Budget.hpp"
 
+#include "workstealing/policies/BufferedWorkpool.hpp"
+
 enum GeometricType {
   LINEAR = 0, CYCLIC, FIXED, EXPDEC
 };
@@ -270,7 +272,19 @@ int hpx_main(hpx::program_options::variables_map & opts) {
                                            std::integral_constant<unsigned, UTS_MAX_TREE_DEPTH> > >
           ::search(params, root, searchParameters);
     }
-  } else {
+  } else if (skeleton == "bufferedworkpool") { // Trying to get my buffered workpool policy in here
+    YewPar::Skeletons::API::Params<> searchParameters;
+    searchParameters.spawnDepth = spawnDepth;
+    count = YewPar::Skeletons::DepthBounded<NodeGen<TreeType::GEOMETRIC>,
+                                            YewPar::Skeletons::API::Enumeration,
+                                            YewPar::Skeletons::API::Enumerator<CountNodes>,
+                                            YewPar::Skeletons::API::DepthLimited,
+                                            YewPar::Skeletons::API::DepthBoundedPoolPolicy<
+                                              YewPar::WorkStealing::Policies::BufferedWorkpool> >
+             ::search(params, root, searchParameters);
+  }
+  
+  else {
     hpx::cout << "Invalid tree type\n";
   }
 
