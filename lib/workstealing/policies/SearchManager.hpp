@@ -10,6 +10,11 @@
 #include <atomic>
 #include <unordered_map>
 
+#include <stdexcept> // for runtime_error
+#include <algorithm> // for sort, unique
+#include <cstdlib>  // for getenv, atoi
+#include <deque> 
+
 #include <hpx/include/components.hpp>
 
 #include <hpx/performance_counters/manage_counter_type.hpp>
@@ -114,6 +119,176 @@ struct SearchManager : public hpx::components::component_base<SearchManager> {
     // Last steal optimisation
     hpx::id_type last_remote;
 
+    // ------ Lifeline State --------
+    std::vector<hpx::id_type> lifelines; // vector containing the lifeline ids
+    std::vector<bool> lifelineActive; // is the lifeline active?
+
+    std::deque<hpx::id_type> lifelineThieves; // deque of thieves 
+
+    unsigned maxRandomSteals = 4; // max random steals before trying lifelines
+    unsigned lifelineDim = 2; // lifeline dimensions / called z in the paper
+
+    std::vector<hpx::id_type> allSearchManagers; // all search managers on all localities (including this one)
+
+    void readEnvVariables() { // Read in any environment variables for tuning purposes
+      char* maxRandStealsEnv = std::getenv("YewPar_MaxRandomSteals");
+      if (maxRandStealsEnv != nullptr) {
+        maxRandomSteals = std::atoi(maxRandStealsEnv);
+      }
+
+      char* lifelineDimEnv = std::getenv("YewPar_LifelineDim");
+      if (lifelineDimEnv != nullptr) {
+        lifelineDim = std::atoi(lifelineDimEnv);
+      }
+    }
+
+    unsigned getValueOfH() {
+      unsigned P = allSearchManagers.size(); // called P in the paper... stands for total places
+
+      unsigned h = 1; // called h in the paper. Maybe better to call this base?
+      while (true) {
+        unsigned pow = 1;
+        for (unsigned i = 0; i < lifelineDim; ++i) {
+          pow *= h;
+        }
+        if (pow >= P) { break; }
+        h++;
+      }
+      return h;
+    }
+
+    unsigned getMyIndex() {
+      unsigned P = allSearchManagers.size(); // called P in the paper... stands for total places
+      
+      for (unsigned i = 0; i < P; ++i) {
+        if (allSearchManagers[i] == this->get_id()) {
+          return i;
+        }
+      }
+      return P + 1; // should never happen
+    }
+
+    // Least significant digit first!! 
+    void convertToBaseH(unsigned value, unsigned base, unsigned length, std::vector<unsigned> & digits) {
+      digits.clear();
+      for (unsigned i = 0; i < length; ++i) {
+        digits.push_back(value % base);
+        value /= base;
+      }
+    }
+
+    void convertFromBaseH(const std::vector<unsigned> & digits, unsigned base, unsigned & value) {
+      value = 0;
+      unsigned mult = 1;
+      for (unsigned i = 0; i < digits.size(); ++i) {
+        value += digits[i] * mult;
+        mult *= base;
+      }
+    }
+
+    void fillLifelines(const std::vector<unsigned> & myDigits, unsigned h, unsigned dim, unsigned myIndex) {
+      if (dim == lifelineDim) {
+        return;
+      }
+
+      auto candidate = myDigits;
+      for (unsigned i = 1; i < h; ++i) {
+        candidate[dim] = (myDigits[dim] + i) % h;
+        unsigned lifelineIndex;
+        convertFromBaseH(candidate, h, lifelineIndex);
+        if (lifelineIndex != myIndex && lifelineIndex < allSearchManagers.size()) {
+          lifelines.push_back(allSearchManagers[lifelineIndex]);
+          break;
+        }
+      }
+      fillLifelines(myDigits, h, dim + 1, myIndex);
+    }
+
+    void computeLifelines() {
+      lifelines.clear();
+      lifelineActive.clear();
+      
+      unsigned h = getValueOfH();
+
+      unsigned myIndex = getMyIndex();
+      if (myIndex >= allSearchManagers.size()) {
+        throw std::runtime_error("Error computing lifelines: could not find own locality in allSearchManagers");
+      }
+
+      std::vector<unsigned> myDigits;
+      convertToBaseH(myIndex, h, lifelineDim, myDigits);
+
+      fillLifelines(myDigits, h, 0, myIndex);
+      // Remove duplicates 
+      std::sort(lifelines.begin(), lifelines.end());
+      lifelines.erase(std::unique(lifelines.begin(), lifelines.end()), lifelines.end());
+
+      lifelineActive = std::vector<bool>(lifelines.size(), false); // all inactive initially
+    }
+
+    Response getLifelineWorkPriv(std::unique_lock<MutexT> & l, hpx::id_type thief) {
+      auto res = getLocalWork(l); // try local first
+      
+      if (!res.empty()) { return res; }
+
+      // no local work, add the thief to the lifeline thieves
+      lifelineThieves.push_back(thief);
+      return {};
+    }
+
+    void receiveLifelineLootPriv( hpx::id_type source, Response loot) {
+      // identify which lifeline this is from
+      for (unsigned i = 0; i < lifelines.size(); ++i) {
+        if (lifelines[i] == source) {
+          lifelineActive[i] = false; // mark as inactive
+          break;
+        }
+      }
+
+      // add the loot to the task buffer
+      for (auto & task : loot) {
+        taskBuffer.push_left(std::move(task));
+      }
+    }
+
+    void serveLifelineThieves(std::unique_lock<MutexT> & l) {
+      while (!lifelineThieves.empty() && !active.empty()) {
+        auto thief = lifelineThieves.front();
+        lifelineThieves.pop_front();
+
+        auto loot = getLocalWork(l);
+        if (loot.empty()) {
+          lifelineThieves.push_front(thief); // put it back
+          return;
+        }
+
+        l.unlock();
+        hpx::async<ReceiveLifelineLootAct<SearchInfo, FuncToCall, Args...> >(thief, this->get_id(), std::move(loot));
+        l.lock();
+      }
+    }
+
+    Response tryLifelineSteal(std::unique_lock<MutexT> & l) {
+      
+      for (unsigned i = 0; i < lifelines.size(); ++i) {
+        if (lifelineActive[i]) {
+          continue; // already active
+        }
+        
+        auto target = lifelines[i];
+        l.unlock();
+        auto res = hpx::async<GetLifelineWorkAct<SearchInfo, FuncToCall, Args...> >(target, this->get_id()).get();
+        l.lock();
+
+        if (!res.empty()) {
+          return res;
+        }
+
+        lifelineActive[i] = true; // mark as active
+      }
+      return {};
+    }
+
     // Try to steal from a thread on another (random) locality
     Response tryDistributedSteal(std::unique_lock<MutexT> & l) {
       // We only allow one distributed steal to happen at a time (to make sure we
@@ -153,9 +328,19 @@ struct SearchManager : public hpx::components::component_base<SearchManager> {
       return res;
     }
 
+    bool hasActiveLifelines() {
+      for (auto active : lifelineActive) {
+        if (active) {
+          return true;
+        }
+      }
+      return false;
+    }
+
    public:
 
     SearchManagerComp() {
+      readEnvVariables();
       for (auto i = 0; i < hpx::get_os_thread_count(); ++i) {
         activeIds.push(i);
       }
@@ -173,6 +358,8 @@ struct SearchManager : public hpx::components::component_base<SearchManager> {
       distributedSearchManagers.erase(
           std::remove_if(distributedSearchManagers.begin(), distributedSearchManagers.end(), YewPar::util::isColocated),
           distributedSearchManagers.end());
+      allSearchManagers = distributedSearchMgrs;
+      computeLifelines();
     }
 
     // Try to get work from a (random) thread running on this locality and wrap it
@@ -180,6 +367,16 @@ struct SearchManager : public hpx::components::component_base<SearchManager> {
     Response getDistributedWork() {
       std::unique_lock<MutexT> l(mtx);
       return getLocalWork(l);
+    }
+
+    Response getLifelineWork(hpx::id_type thief) {
+      std::unique_lock<MutexT> l(mtx);
+      return getLifelineWorkPriv(l, thief);
+    }
+
+    void receiveLifelineLoot(hpx::id_type source, Response loot) {
+      std::unique_lock<MutexT> l(mtx);
+      receiveLifelineLootPriv(source, std::move(loot));
     }
 
     // Try to get work from a (random) thread running on this locality
@@ -224,6 +421,10 @@ struct SearchManager : public hpx::components::component_base<SearchManager> {
     hpx::function<void(), false> getWork() override {
       std::unique_lock<MutexT> l(mtx);
 
+      if (!lifelineThieves.empty() && !active.empty()) {
+        serveLifelineThieves(l);
+      }
+
       // Return from task buffer first if anything exists
       Task task;
       if (taskBuffer.pop_right(task)) {
@@ -235,17 +436,31 @@ struct SearchManager : public hpx::components::component_base<SearchManager> {
       Response maybeStolen;
       if (active.empty()) {
         // No local threads running, steal distributed
-        if (!distributedSearchManagers.empty()) {
-          maybeStolen = tryDistributedSteal(l);
+        if (distributedSearchManagers.empty()) {
+          SearchManagerPerf::perf_failedDistributedSteals++;
+          return nullptr;
+        }
+
+        if (!hasActiveLifelines()) {
+          for (unsigned i = 0; i < maxRandomSteals; ++i) {
+            maybeStolen = tryDistributedSteal(l);
+            if (!maybeStolen.empty()) {
+              SearchManagerPerf::perf_distributedSteals++;
+              break;
+            } else {
+              SearchManagerPerf::perf_failedDistributedSteals++;
+            }
+          }
+        }
+
+        if (maybeStolen.empty()) {
+          maybeStolen = tryLifelineSteal(l);
           if (!maybeStolen.empty()) {
             SearchManagerPerf::perf_distributedSteals++;
           } else {
             SearchManagerPerf::perf_failedDistributedSteals++;
             return nullptr;
           }
-        } else {
-          SearchManagerPerf::perf_failedLocalSteals++;
-          return nullptr;
         }
       } else {
         maybeStolen = getLocalWork(l);
@@ -355,6 +570,36 @@ struct SearchManager : public hpx::components::component_base<SearchManager> {
     decltype(&SearchManager::getDistributedWork<SearchInfo, FuncToCall, Args...>),
     &SearchManager::getDistributedWork<SearchInfo, FuncToCall, Args...>,
     GetDistributedWorkAct<SearchInfo, FuncToCall, Args...> >::type {};
+
+
+
+
+  template <typename SearchInfo, typename FuncToCall, typename ...Args>
+  typename SearchManagerComp<SearchInfo, FuncToCall, Args...>::Response_t getLifelineWork(hpx::id_type thief) {
+    auto sm = std::static_pointer_cast<SearchManagerComp<SearchInfo, FuncToCall, Args...>>
+      (Workstealing::Scheduler::local_policy);
+    return sm->getLifelineWork(thief);
+  }
+  template <typename SearchInfo, typename FuncToCall, typename ...Args>
+  struct GetLifelineWorkAct : hpx::actions::make_action<
+    decltype(&SearchManager::getLifelineWork<SearchInfo, FuncToCall, Args...>),
+    &SearchManager::getLifelineWork<SearchInfo, FuncToCall, Args...>,
+    GetLifelineWorkAct<SearchInfo, FuncToCall, Args...> >::type {};
+  
+
+  template <typename SearchInfo, typename FuncToCall, typename ...Args>
+  void receiveLifelineLoot(hpx::id_type source, typename SearchManagerComp<SearchInfo, FuncToCall, Args...>::Response_t loot) {
+    auto sm = std::static_pointer_cast<SearchManagerComp<SearchInfo, FuncToCall, Args...>>
+      (Workstealing::Scheduler::local_policy);
+    sm->receiveLifelineLoot(source, loot);
+  }
+  template <typename SearchInfo, typename FuncToCall, typename ...Args>
+  struct ReceiveLifelineLootAct : hpx::actions::make_action<
+    decltype(&SearchManager::receiveLifelineLoot<SearchInfo, FuncToCall, Args...>),
+    &SearchManager::receiveLifelineLoot<SearchInfo, FuncToCall, Args...>,
+    ReceiveLifelineLootAct<SearchInfo, FuncToCall, Args...> >::type {};  
+
+
 };
 
 }}
