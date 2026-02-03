@@ -64,9 +64,12 @@ void registerPerformanceCounters() {
 
 }
 
+std::atomic<bool> DepthPoolPolicy::default_last_steal_optimisation_enabled{true};
+
 DepthPoolPolicy::DepthPoolPolicy(hpx::id_type workpool) {
   local_workpool = workpool;
   last_remote = hpx::find_here();
+  last_steal_optimisation_enabled = default_last_steal_optimisation_enabled.load();
 
   std::random_device rd;
   randGenerator.seed(rd());
@@ -87,7 +90,7 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
 
   if (!distributed_workpools.empty()) {
     // Last steal optimisation
-    if (last_remote != hpx::find_here()) {
+    if (last_steal_optimisation_enabled && last_remote != hpx::find_here()) {
       task = hpx::async<workstealing::DepthPool::steal_action>(last_remote).get();
       if (task) {
         DepthPoolPolicyPerf::perf_distributedSteals++;
@@ -120,6 +123,14 @@ void DepthPoolPolicy::addwork(hpx::distributed::function<void(hpx::id_type)> tas
   std::unique_lock<mutex_t> l(mtx);
   DepthPoolPolicyPerf::perf_spawns++;
   hpx::post<workstealing::DepthPool::addWork_action>(local_workpool, task, depth);
+}
+
+void DepthPoolPolicy::setLastStealOptimisation(bool enable) {
+  std::unique_lock<mutex_t> l(mtx);
+  last_steal_optimisation_enabled = enable;
+  if (!enable) {
+    last_remote = hpx::find_here();
+  }
 }
 
 void DepthPoolPolicy::registerDistributedDepthPools(std::vector<hpx::id_type> workpools) {

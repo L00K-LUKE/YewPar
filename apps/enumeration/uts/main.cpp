@@ -1,5 +1,7 @@
 #include <hpx/hpx_init.hpp>
 #include <hpx/iostream.hpp>
+#include <hpx/collectives/broadcast.hpp>
+#include <hpx/runtime_distributed/find_all_localities.hpp>
 
 // We just use the default RNG for simplicity
 #define BRG_RNG
@@ -10,6 +12,7 @@
 #include "skeletons/DepthBounded.hpp"
 #include "skeletons/StackStealing.hpp"
 #include "skeletons/Budget.hpp"
+#include "workstealing/policies/DepthPoolPolicy.hpp"
 
 enum GeometricType {
   LINEAR = 0, CYCLIC, FIXED, EXPDEC
@@ -187,6 +190,7 @@ int hpx_main(hpx::program_options::variables_map & opts) {
   auto maxDepth   = opts["until-depth"].as<unsigned>();
   auto skeleton   = opts["skeleton"].as<std::string>();
   auto treeType   = opts["uts-t"].as<std::string>();
+  auto depthpoolLastSteal = opts["depthpool-last-steal"].as<bool>();
 
   auto start_time = std::chrono::steady_clock::now();
 
@@ -195,6 +199,12 @@ int hpx_main(hpx::program_options::variables_map & opts) {
 
   UTSNode root { true, 0 };
   rng_init(root.rngstate.state, opts["uts-r"].as<int>());
+
+  if (skeleton == "depthbounded" || skeleton == "budget") {
+    hpx::wait_all(hpx::lcos::broadcast<
+        Workstealing::Policies::DepthPoolPolicy::setDefaultLastStealOptimisation_act>(
+            hpx::find_all_localities(), depthpoolLastSteal));
+  }
 
   std::uint64_t count;
   if (treeType == "binomial") {
@@ -305,6 +315,10 @@ int main(int argc, char* argv[]) {
       ( "backtrack-budget,b",
         hpx::program_options::value<unsigned>()->default_value(500),
         "Number of backtracks before spawning work"
+        ) 
+      ( "depthpool-last-steal",
+        hpx::program_options::value<bool>()->default_value(true),
+        "Enable last-steal optimisation in depthpool policies (depthbounded/budget)"
         )
       ("chunked", "Use chunking with stack stealing")
       // UTS Options

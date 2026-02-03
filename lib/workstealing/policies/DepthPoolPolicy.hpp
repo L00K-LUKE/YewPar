@@ -9,6 +9,7 @@
 
 #include "../DepthPool.hpp"
 
+#include <atomic>
 #include <random>
 #include <vector>
 
@@ -25,9 +26,11 @@ void registerPerformanceCounters();
 class DepthPoolPolicy : public Policy {
 
  private:
-  hpx::id_type local_workpool;
-  hpx::id_type last_remote;
+ hpx::id_type local_workpool;
+ hpx::id_type last_remote;
+  bool last_steal_optimisation_enabled = true;
   std::vector<hpx::id_type> distributed_workpools;
+  static std::atomic<bool> default_last_steal_optimisation_enabled;
 
   // random number generator
   std::mt19937 randGenerator;
@@ -45,6 +48,16 @@ class DepthPoolPolicy : public Policy {
 
   void registerDistributedDepthPools(std::vector<hpx::id_type> workpools);
 
+  void setLastStealOptimisation(bool enable);
+
+  static void setDefaultLastStealOptimisation(bool enable) {
+    default_last_steal_optimisation_enabled.store(enable);
+  }
+  struct setDefaultLastStealOptimisation_act : hpx::actions::make_action<
+    decltype(&DepthPoolPolicy::setDefaultLastStealOptimisation),
+    &DepthPoolPolicy::setDefaultLastStealOptimisation,
+    setDefaultLastStealOptimisation_act>::type {};
+
   static void setDepthPool(hpx::id_type localworkpool) {
     Workstealing::Scheduler::local_policy = std::make_shared<DepthPoolPolicy>(localworkpool);
   }
@@ -60,6 +73,15 @@ class DepthPoolPolicy : public Policy {
     decltype(&DepthPoolPolicy::setDistributedDepthPools),
     &DepthPoolPolicy::setDistributedDepthPools,
     setDistributedDepthPools_act>::type {};
+
+  static void setLastStealOptimisationFlag(bool enable) {
+    std::static_pointer_cast<Workstealing::Policies::DepthPoolPolicy>(
+        Workstealing::Scheduler::local_policy)->setLastStealOptimisation(enable);
+  }
+  struct setLastStealOptimisationFlag_act : hpx::actions::make_action<
+    decltype(&DepthPoolPolicy::setLastStealOptimisationFlag),
+    &DepthPoolPolicy::setLastStealOptimisationFlag,
+    setLastStealOptimisationFlag_act>::type {};
 
   static void initPolicy() {
     std::vector<hpx::future<void> > futs;
