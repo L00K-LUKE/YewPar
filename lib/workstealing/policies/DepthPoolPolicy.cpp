@@ -141,8 +141,9 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
     // TODO: Could try stealing in order of most work to least work.
     // Also maybe worth trying random steal?
     // For now, just return nullptr if the steal fails.
-    return nullptr; 
-
+    return nullptr;
+  }
+  return nullptr; 
 }
 
 void DepthPoolPolicy::addwork(hpx::distributed::function<void(hpx::id_type)> task, unsigned depth) {
@@ -160,4 +161,4 @@ void DepthPoolPolicy::registerDistributedDepthPools(std::vector<hpx::id_type> wo
       distributed_workpools.end());
 }
 
-}} }
+}}
