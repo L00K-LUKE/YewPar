@@ -74,7 +74,7 @@ DepthPoolPolicy::DepthPoolPolicy(hpx::id_type workpool) {
   randGenerator.seed(rd());
 }
 
-std::vector<std::size_t> getIndices() {
+std::vector<std::size_t> DepthPoolPolicy::getIndices() {
   std::vector<std::size_t> indices(distributed_workpools.size());
   std::iota(indices.begin(), indices.end(), 0);
 
@@ -87,7 +87,7 @@ std::vector<std::size_t> getIndices() {
   return indices;
 }
 
-hpx::id_type getBestVictim(const std::vector<std::size_t>& indices) {
+hpx::id_type DepthPoolPolicy::getBestVictim(const std::vector<std::size_t>& indices) {
 
   std::size_t biggest_pool = 0;
   hpx::id_type best_victim = hpx::invalid_id;
