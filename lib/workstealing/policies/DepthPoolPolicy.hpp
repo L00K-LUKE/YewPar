@@ -26,8 +26,8 @@ void registerPerformanceCounters();
 class DepthPoolPolicy : public Policy {
 
  private:
- hpx::id_type local_workpool;
- hpx::id_type last_remote;
+  hpx::id_type local_workpool;
+  hpx::id_type last_remote;
   bool last_steal_optimisation_enabled = true;
   std::vector<hpx::id_type> distributed_workpools;
   static std::atomic<bool> default_last_steal_optimisation_enabled;
