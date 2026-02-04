@@ -18,6 +18,7 @@ class DepthPool : public hpx::components::locking_hook<
   using fnType = hpx::distributed::function<void(hpx::id_type)>;
 
   std::vector< std::queue<fnType> > pools;
+  std::size_t total_tasks = 0;
 
   // For quicker access
   unsigned lowest = 0;
@@ -30,17 +31,20 @@ class DepthPool : public hpx::components::locking_hook<
     pools.resize(max_depth);
   }
 
-  fnType getLocal();
+ fnType getLocal();
   HPX_DEFINE_COMPONENT_ACTION(DepthPool, getLocal);
   fnType steal();
   HPX_DEFINE_COMPONENT_ACTION(DepthPool, steal);
   void addWork(fnType task, unsigned depth);
   HPX_DEFINE_COMPONENT_ACTION(DepthPool, addWork);
+  std::size_t size();
+  HPX_DEFINE_COMPONENT_ACTION(DepthPool, size);
 };
 }
 
 HPX_REGISTER_ACTION_DECLARATION(workstealing::DepthPool::getLocal_action, DepthPool_getLocal_action);
 HPX_REGISTER_ACTION_DECLARATION(workstealing::DepthPool::steal_action, DepthPool_steal_action);
 HPX_REGISTER_ACTION_DECLARATION(workstealing::DepthPool::addWork_action, DepthPool_addWork_action);
+HPX_REGISTER_ACTION_DECLARATION(workstealing::DepthPool::size_action, DepthPool_size_action);
 
 #endif

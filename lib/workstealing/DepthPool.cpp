@@ -9,6 +9,9 @@ DepthPool::fnType DepthPool::steal() {
     if (!pools[i].empty()) {
       auto task = pools[i].front();
       pools[i].pop();
+      if (total_tasks > 0) {
+        --total_tasks;
+      }
       return task;
     }
   }
@@ -22,6 +25,9 @@ DepthPool::fnType DepthPool::getLocal() {
   } else {
     task = pools[lowest].front();
     pools[lowest].pop();
+    if (total_tasks > 0) {
+      --total_tasks;
+    }
   }
 
   // Update lowest pointer if required
@@ -44,10 +50,15 @@ void DepthPool::addWork(DepthPool::fnType task, unsigned depth) {
   }
 
   pools[depth].push(task);
+  ++total_tasks;
 
   if (depth > lowest) {
     lowest = depth;
   }
+}
+
+std::size_t DepthPool::size() {
+  return total_tasks;
 }
 
 }
@@ -61,3 +72,4 @@ HPX_REGISTER_COMPONENT(DepthPool_type, DepthPool);
 HPX_REGISTER_ACTION(workstealing::DepthPool::getLocal_action, DepthPool_getLocal_action);
 HPX_REGISTER_ACTION(workstealing::DepthPool::steal_action, DepthPool_steal_action);
 HPX_REGISTER_ACTION(workstealing::DepthPool::addWork_action, DepthPool_addWork_action);
+HPX_REGISTER_ACTION(workstealing::DepthPool::size_action, DepthPool_size_action);
