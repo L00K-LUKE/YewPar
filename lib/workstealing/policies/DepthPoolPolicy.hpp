@@ -30,7 +30,7 @@ class DepthPoolPolicy : public Policy {
   hpx::id_type last_remote;
   std::vector<hpx::id_type> distributed_workpools;
   std::atomic<std::size_t> local_workpool_jobs = 0;
-  std::size_t distributed_sample_size = 3;
+  std::size_t distributed_sample_size = 4;
 
   // random number generator
   std::mt19937 randGenerator;
