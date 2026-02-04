@@ -11,6 +11,7 @@
 
 #include <random>
 #include <vector>
+#include <atomic>
 
 namespace Workstealing { namespace Scheduler {extern std::shared_ptr<Policy> local_policy; }}
 
@@ -28,12 +29,17 @@ class DepthPoolPolicy : public Policy {
   hpx::id_type local_workpool;
   hpx::id_type last_remote;
   std::vector<hpx::id_type> distributed_workpools;
+  std::atomic<std::size_t> local_workpool_jobs = 0;
+  std::size_t distributed_sample_size = 3;
 
   // random number generator
   std::mt19937 randGenerator;
 
   using mutex_t = hpx::mutex;
   mutex_t mtx;
+
+  std::vector<std::size_t> getIndices();
+  hpx::id_type getBestVictim(const std::vector<std::size_t>& indices);
 
  public:
   DepthPoolPolicy(hpx::id_type workpool);
