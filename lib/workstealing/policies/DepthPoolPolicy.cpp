@@ -138,6 +138,7 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
 
     const auto best_victim = getBestVictim(indices);
     if (best_victim == hpx::invalid_id) {
+      std::cout << "No valid victim found for stealing" << std::endl;
       DepthPoolPolicyPerf::perf_failedDistributedSteals++;
       return nullptr;
     }
