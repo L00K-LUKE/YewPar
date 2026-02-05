@@ -93,7 +93,7 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
     if (last_steal_optimisation_enabled && last_remote != hpx::find_here()) {
       task = hpx::async<workstealing::DepthPool::steal_action>(last_remote).get();
       if (task) {
-        std::cout << "Last steal optimisation successful" << std::endl;
+        // std::cout << "Last steal optimisation successful" << std::endl;
         DepthPoolPolicyPerf::perf_distributedSteals++;
         return hpx::bind(task, hpx::find_here());
       } else {
