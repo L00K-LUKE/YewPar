@@ -100,7 +100,7 @@ hpx::id_type DepthPoolPolicy::getBestVictim(const std::vector<std::size_t>& indi
       best_victim = candidate;
     }
   }
-  std::cout << "Best victim is " << best_victim << " and has " << biggest_pool << " tasks" << std::endl;
+  // std::cout << "Best victim is " << best_victim << " and has " << biggest_pool << " tasks" << std::endl;
   return best_victim;
 }
 
@@ -139,7 +139,7 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
     const auto best_victim = getBestVictim(indices);
 
     if (best_victim == hpx::invalid_id) {
-      std::cout << "No valid victim found for stealing" << std::endl;
+      // std::cout << "No valid victim found for stealing" << std::endl;
       return nullptr;
     }
 
