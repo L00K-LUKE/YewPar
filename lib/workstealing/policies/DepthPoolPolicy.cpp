@@ -109,7 +109,8 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
   hpx::distributed::function<void(hpx::id_type)> task;
   task = hpx::async<workstealing::DepthPool::getLocal_action>(local_workpool).get();
 
-  if (task) { // Steal from local pool
+  // Steal from local pool
+  if (task) { 
     DepthPoolPolicyPerf::perf_localSteals++;
     auto current_jobs = local_workpool_jobs.load();
     if (current_jobs > 0) {
@@ -118,6 +119,17 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
     return hpx::bind(task, hpx::find_here());
   } else {
     DepthPoolPolicyPerf::perf_failedLocalSteals++;
+  }
+
+  // Steal from last successful remote steal
+  if (last_remote != hpx::find_here()) {
+    task = hpx::async<workstealing::DepthPool::steal_action>(last_remote).get();
+    if (task) {
+      DepthPoolPolicyPerf::perf_distributedSteals++;
+      return hpx::bind(task, hpx::find_here());
+    } else {
+      DepthPoolPolicyPerf::perf_failedDistributedSteals++;
+    }
   }
 
   // Try to steal from a random sample of the distributed pools. Pick the one with the most work to steal from.
