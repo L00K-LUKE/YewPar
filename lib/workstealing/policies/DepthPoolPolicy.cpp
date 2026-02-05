@@ -135,11 +135,10 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
   // Try to steal from a random sample of the distributed pools. Pick the one with the most work to steal from.
   if (!distributed_workpools.empty()) {
     const std::vector<std::size_t> indices = getIndices();
-
     const auto best_victim = getBestVictim(indices);
+    
     if (best_victim == hpx::invalid_id) {
       std::cout << "No valid victim found for stealing" << std::endl;
-      DepthPoolPolicyPerf::perf_failedDistributedSteals++;
       return nullptr;
     }
 
