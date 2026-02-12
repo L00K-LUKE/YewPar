@@ -5,11 +5,14 @@
 
 #include <hpx/include/components.hpp>
 #include <hpx/modules/collectives.hpp>
+#include <hpx/modules/runtime_configuration.hpp>
 #include <hpx/runtime_distributed/find_all_localities.hpp>
 
 #include "../DepthPool.hpp"
 
+#include <algorithm>
 #include <random>
+#include <string>
 #include <vector>
 
 namespace Workstealing { namespace Scheduler {extern std::shared_ptr<Policy> local_policy; }}
@@ -28,6 +31,7 @@ class DepthPoolPolicy : public Policy {
   hpx::id_type local_workpool;
   hpx::id_type last_remote;
   std::vector<hpx::id_type> distributed_workpools;
+  unsigned neighbour_steal_size;
 
   // random number generator
   std::mt19937 randGenerator;
@@ -36,7 +40,7 @@ class DepthPoolPolicy : public Policy {
   mutex_t mtx;
 
  public:
-  DepthPoolPolicy(hpx::id_type workpool);
+  DepthPoolPolicy(hpx::id_type workpool, unsigned neighbourStealSize);
   ~DepthPoolPolicy() = default;
 
   hpx::function<void(), false> getWork() override;
@@ -45,8 +49,8 @@ class DepthPoolPolicy : public Policy {
 
   void registerDistributedDepthPools(std::vector<hpx::id_type> workpools);
 
-  static void setDepthPool(hpx::id_type localworkpool) {
-    Workstealing::Scheduler::local_policy = std::make_shared<DepthPoolPolicy>(localworkpool);
+  static void setDepthPool(hpx::id_type localworkpool, unsigned neighbourStealSize) {
+    Workstealing::Scheduler::local_policy = std::make_shared<DepthPoolPolicy>(localworkpool, neighbourStealSize);
   }
   struct setDepthPool_act : hpx::actions::make_action<
     decltype(&DepthPoolPolicy::setDepthPool),
@@ -62,11 +66,14 @@ class DepthPoolPolicy : public Policy {
     setDistributedDepthPools_act>::type {};
 
   static void initPolicy() {
+    auto const neighbourStealSize =
+        static_cast<unsigned>(std::stoul(hpx::get_config_entry("hpx.ring_size", "1")));
+
     std::vector<hpx::future<void> > futs;
     std::vector<hpx::id_type> pools;
     for (auto const& loc : hpx::find_all_localities()) {
       auto depthpool = hpx::new_<workstealing::DepthPool>(loc).get();
-      futs.push_back(hpx::async<setDepthPool_act>(loc, depthpool));
+      futs.push_back(hpx::async<setDepthPool_act>(loc, depthpool, neighbourStealSize));
       pools.push_back(depthpool);
     }
     hpx::wait_all(futs);

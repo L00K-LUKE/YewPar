@@ -64,7 +64,8 @@ void registerPerformanceCounters() {
 
 }
 
-DepthPoolPolicy::DepthPoolPolicy(hpx::id_type workpool) {
+DepthPoolPolicy::DepthPoolPolicy(hpx::id_type workpool, unsigned neighbourStealSize)
+    : neighbour_steal_size(neighbourStealSize) {
   local_workpool = workpool;
   last_remote = hpx::find_here();
 
@@ -124,10 +125,42 @@ void DepthPoolPolicy::addwork(hpx::distributed::function<void(hpx::id_type)> tas
 
 void DepthPoolPolicy::registerDistributedDepthPools(std::vector<hpx::id_type> workpools) {
   std::unique_lock<mutex_t> l(mtx);
-  distributed_workpools = workpools;
-  distributed_workpools .erase(
-      std::remove_if(distributed_workpools.begin(), distributed_workpools.end(), YewPar::util::isColocated),
-      distributed_workpools.end());
+  distributed_workpools.clear();
+
+  auto localPoolIt = std::find_if(workpools.begin(), workpools.end(), YewPar::util::isColocated);
+  if (localPoolIt == workpools.end()) {
+    distributed_workpools = workpools;
+    distributed_workpools.erase(
+        std::remove_if(distributed_workpools.begin(), distributed_workpools.end(), YewPar::util::isColocated),
+        distributed_workpools.end());
+    return;
+  }
+
+  auto const localIndex = static_cast<std::size_t>(std::distance(workpools.begin(), localPoolIt));
+  auto const maxOffset = std::min<std::size_t>(neighbour_steal_size, workpools.size() - 1);
+  std::vector<bool> included(workpools.size(), false);
+
+  // Ring neighbourhood: [local-maxOffset, ..., local-1, local+1, ..., local+maxOffset]
+  // with wrap-around at boundaries.
+  for (std::ptrdiff_t delta = -static_cast<std::ptrdiff_t>(maxOffset);
+       delta <= static_cast<std::ptrdiff_t>(maxOffset); ++delta) {
+    if (delta == 0) {
+      continue;
+    }
+
+    auto const wrappedIndex =
+        static_cast<std::size_t>((static_cast<std::ptrdiff_t>(localIndex) + delta +
+                                  static_cast<std::ptrdiff_t>(workpools.size())) %
+                                 static_cast<std::ptrdiff_t>(workpools.size()));
+
+    if (!included[wrappedIndex]) {
+      included[wrappedIndex] = true;
+      distributed_workpools.push_back(workpools[wrappedIndex]);
+    }
+  }
+
+  // Ensure "last steal optimisation" only targets a valid neighbour set.
+  last_remote = hpx::find_here();
 }
 
 }}
