@@ -187,6 +187,9 @@ int hpx_main(hpx::program_options::variables_map & opts) {
   auto maxDepth   = opts["until-depth"].as<unsigned>();
   auto skeleton   = opts["skeleton"].as<std::string>();
   auto treeType   = opts["uts-t"].as<std::string>();
+  auto ringSize   = opts["ring-size"].as<unsigned>();
+
+  Workstealing::Policies::DepthPoolPolicy::setRingSize(ringSize);
 
   auto start_time = std::chrono::steady_clock::now();
 
@@ -305,6 +308,10 @@ int main(int argc, char* argv[]) {
       ( "backtrack-budget,b",
         hpx::program_options::value<unsigned>()->default_value(500),
         "Number of backtracks before spawning work"
+        )
+      ( "ring-size",
+        hpx::program_options::value<unsigned>()->default_value(1),
+        "Ring neighbourhood size for depthpool stealing"
         )
       ("chunked", "Use chunking with stack stealing")
       // UTS Options

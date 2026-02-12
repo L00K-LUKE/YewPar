@@ -5,7 +5,6 @@
 
 #include <hpx/include/components.hpp>
 #include <hpx/modules/collectives.hpp>
-#include <hpx/modules/runtime_configuration.hpp>
 #include <hpx/runtime_distributed/find_all_localities.hpp>
 
 #include "../DepthPool.hpp"
@@ -40,6 +39,8 @@ class DepthPoolPolicy : public Policy {
   mutex_t mtx;
 
  public:
+  inline static unsigned configured_ring_size = 1;
+
   DepthPoolPolicy(hpx::id_type workpool, unsigned neighbourStealSize);
   ~DepthPoolPolicy() = default;
 
@@ -48,6 +49,10 @@ class DepthPoolPolicy : public Policy {
   void addwork(hpx::distributed::function<void(hpx::id_type)> task, unsigned depth);
 
   void registerDistributedDepthPools(std::vector<hpx::id_type> workpools);
+
+  static void setRingSize(unsigned ringSize) {
+    configured_ring_size = ringSize;
+  }
 
   static void setDepthPool(hpx::id_type localworkpool, unsigned neighbourStealSize) {
     Workstealing::Scheduler::local_policy = std::make_shared<DepthPoolPolicy>(localworkpool, neighbourStealSize);
@@ -66,14 +71,11 @@ class DepthPoolPolicy : public Policy {
     setDistributedDepthPools_act>::type {};
 
   static void initPolicy() {
-    auto const neighbourStealSize =
-        static_cast<unsigned>(std::stoul(hpx::get_config_entry("hpx.ring_size", "1")));
-
     std::vector<hpx::future<void> > futs;
     std::vector<hpx::id_type> pools;
     for (auto const& loc : hpx::find_all_localities()) {
       auto depthpool = hpx::new_<workstealing::DepthPool>(loc).get();
-      futs.push_back(hpx::async<setDepthPool_act>(loc, depthpool, neighbourStealSize));
+      futs.push_back(hpx::async<setDepthPool_act>(loc, depthpool, configured_ring_size));
       pools.push_back(depthpool);
     }
     hpx::wait_all(futs);
