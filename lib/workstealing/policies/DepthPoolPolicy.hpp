@@ -82,7 +82,7 @@ class DepthPoolPolicy : public Policy {
     }
     hpx::wait_all(futs);
     hpx::wait_all(hpx::lcos::broadcast<setDistributedDepthPools_act>(hpx::find_all_localities(), pools));
-    hpx::wait_all(hpx::lcos::broadcast<configureDistributedStealDepthCutoff_act>(hpx::find_all_localities(), 8)); // TODO: add command line argument
+    hpx::wait_all(hpx::lcos::broadcast<configureDistributedStealDepthCutoff_act>(hpx::find_all_localities(), 4)); // TODO: add command line argument
   }
 };
 
