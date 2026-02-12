@@ -2,6 +2,7 @@
 #define DEPTHPOOL_COMPONENT_HPP
 
 #include <queue>
+#include <algorithm>
 
 #include <hpx/include/components.hpp>
 #include <hpx/functional/function.hpp>
@@ -34,6 +35,8 @@ class DepthPool : public hpx::components::locking_hook<
   HPX_DEFINE_COMPONENT_ACTION(DepthPool, getLocal);
   fnType steal();
   HPX_DEFINE_COMPONENT_ACTION(DepthPool, steal);
+  fnType stealMigratable(unsigned depth_cutoff);
+  HPX_DEFINE_COMPONENT_ACTION(DepthPool, stealMigratable);
   void addWork(fnType task, unsigned depth);
   HPX_DEFINE_COMPONENT_ACTION(DepthPool, addWork);
 };
@@ -41,6 +44,7 @@ class DepthPool : public hpx::components::locking_hook<
 
 HPX_REGISTER_ACTION_DECLARATION(workstealing::DepthPool::getLocal_action, DepthPool_getLocal_action);
 HPX_REGISTER_ACTION_DECLARATION(workstealing::DepthPool::steal_action, DepthPool_steal_action);
+HPX_REGISTER_ACTION_DECLARATION(workstealing::DepthPool::stealMigratable_action, DepthPool_stealMigratable_action);
 HPX_REGISTER_ACTION_DECLARATION(workstealing::DepthPool::addWork_action, DepthPool_addWork_action);
 
 #endif

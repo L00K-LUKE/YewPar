@@ -10,6 +10,7 @@
 #include "../DepthPool.hpp"
 
 #include <random>
+#include <limits>
 #include <vector>
 
 namespace Workstealing { namespace Scheduler {extern std::shared_ptr<Policy> local_policy; }}
@@ -28,6 +29,7 @@ class DepthPoolPolicy : public Policy {
   hpx::id_type local_workpool;
   hpx::id_type last_remote;
   std::vector<hpx::id_type> distributed_workpools;
+  unsigned distributed_steal_depth_cutoff = std::numeric_limits<unsigned>::max();
 
   // random number generator
   std::mt19937 randGenerator;
@@ -44,6 +46,7 @@ class DepthPoolPolicy : public Policy {
   void addwork(hpx::distributed::function<void(hpx::id_type)> task, unsigned depth);
 
   void registerDistributedDepthPools(std::vector<hpx::id_type> workpools);
+  void setDistributedStealDepthCutoff(unsigned cutoff);
 
   static void setDepthPool(hpx::id_type localworkpool) {
     Workstealing::Scheduler::local_policy = std::make_shared<DepthPoolPolicy>(localworkpool);
@@ -61,6 +64,14 @@ class DepthPoolPolicy : public Policy {
     &DepthPoolPolicy::setDistributedDepthPools,
     setDistributedDepthPools_act>::type {};
 
+  static void configureDistributedStealDepthCutoff(unsigned cutoff) {
+    std::static_pointer_cast<Workstealing::Policies::DepthPoolPolicy>(Workstealing::Scheduler::local_policy)->setDistributedStealDepthCutoff(cutoff);
+  }
+  struct configureDistributedStealDepthCutoff_act : hpx::actions::make_action<
+    decltype(&DepthPoolPolicy::configureDistributedStealDepthCutoff),
+    &DepthPoolPolicy::configureDistributedStealDepthCutoff,
+    configureDistributedStealDepthCutoff_act>::type {};
+
   static void initPolicy() {
     std::vector<hpx::future<void> > futs;
     std::vector<hpx::id_type> pools;
@@ -71,6 +82,7 @@ class DepthPoolPolicy : public Policy {
     }
     hpx::wait_all(futs);
     hpx::wait_all(hpx::lcos::broadcast<setDistributedDepthPools_act>(hpx::find_all_localities(), pools));
+    hpx::wait_all(hpx::lcos::broadcast<configureDistributedStealDepthCutoff_act>(hpx::find_all_localities(), 6)); // TODO: add command line argument
   }
 };
 

@@ -88,7 +88,8 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
   if (!distributed_workpools.empty()) {
     // Last steal optimisation
     if (last_remote != hpx::find_here()) {
-      task = hpx::async<workstealing::DepthPool::steal_action>(last_remote).get();
+      task = hpx::async<workstealing::DepthPool::stealMigratable_action>(
+          last_remote, distributed_steal_depth_cutoff).get();
       if (task) {
         DepthPoolPolicyPerf::perf_distributedSteals++;
         return hpx::bind(task, hpx::find_here());
@@ -102,7 +103,8 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
     std::uniform_int_distribution<int> rand(0, distributed_workpools.size() - 1);
     auto victim = distributed_workpools.begin();
     std::advance(victim, rand(randGenerator));
-    task = hpx::async<workstealing::DepthPool::steal_action>(*victim).get();
+    task = hpx::async<workstealing::DepthPool::stealMigratable_action>(
+        *victim, distributed_steal_depth_cutoff).get();
 
     if (task) {
       last_remote = *victim;
@@ -114,6 +116,11 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
   }
 
   return nullptr;
+}
+
+void DepthPoolPolicy::setDistributedStealDepthCutoff(unsigned cutoff) {
+  std::unique_lock<mutex_t> l(mtx);
+  distributed_steal_depth_cutoff = cutoff;
 }
 
 void DepthPoolPolicy::addwork(hpx::distributed::function<void(hpx::id_type)> task, unsigned depth) {

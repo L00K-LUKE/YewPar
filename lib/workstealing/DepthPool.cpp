@@ -15,6 +15,20 @@ DepthPool::fnType DepthPool::steal() {
   return nullptr;
 }
 
+DepthPool::fnType DepthPool::stealMigratable(unsigned depth_cutoff) {
+  DepthPool::fnType task;
+  auto limit = std::min(lowest, depth_cutoff);
+
+  for (unsigned i = 0; i <= limit; ++i) {
+    if (!pools[i].empty()) {
+      auto task = pools[i].front();
+      pools[i].pop();
+      return task;
+    }
+  }
+  return nullptr;
+}
+
 DepthPool::fnType DepthPool::getLocal() {
   DepthPool::fnType task;
   if (pools[lowest].empty()) {
@@ -60,4 +74,5 @@ HPX_REGISTER_COMPONENT(DepthPool_type, DepthPool);
 
 HPX_REGISTER_ACTION(workstealing::DepthPool::getLocal_action, DepthPool_getLocal_action);
 HPX_REGISTER_ACTION(workstealing::DepthPool::steal_action, DepthPool_steal_action);
+HPX_REGISTER_ACTION(workstealing::DepthPool::stealMigratable_action, DepthPool_stealMigratable_action);
 HPX_REGISTER_ACTION(workstealing::DepthPool::addWork_action, DepthPool_addWork_action);
