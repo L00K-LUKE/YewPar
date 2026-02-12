@@ -9,7 +9,7 @@
 
 #include "../DepthPool.hpp"
 
-#include <random>
+#include <cstddef>
 #include <vector>
 
 namespace Workstealing { namespace Scheduler {extern std::shared_ptr<Policy> local_policy; }}
@@ -28,9 +28,11 @@ class DepthPoolPolicy : public Policy {
   hpx::id_type local_workpool;
   hpx::id_type last_remote;
   std::vector<hpx::id_type> distributed_workpools;
+  std::vector<hpx::id_type> victim_order;
+  std::size_t next_victim_idx = 0;
 
-  // random number generator
-  std::mt19937 randGenerator;
+  void rebuildVictimOrder();
+  void resumeAfterVictim(hpx::id_type victim);
 
   using mutex_t = hpx::mutex;
   mutex_t mtx;
