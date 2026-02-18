@@ -73,44 +73,61 @@ DepthPoolPolicy::DepthPoolPolicy(hpx::id_type workpool) {
 }
 
 hpx::function<void(), false> DepthPoolPolicy::getWork() {
-  std::unique_lock<mutex_t> l(mtx);
-
   hpx::distributed::function<void(hpx::id_type)> task;
   task = hpx::async<workstealing::DepthPool::getLocal_action>(local_workpool).get();
 
+  auto here = hpx::find_here();
+
   if (task) {
     DepthPoolPolicyPerf::perf_localSteals++;
-    return hpx::bind(task, hpx::find_here());
+    return hpx::bind(task, here);
   } else {
     DepthPoolPolicyPerf::perf_failedLocalSteals++;
   }
 
-  if (!distributed_workpools.empty()) {
+  hpx::id_type preferred_victim = here;
+  hpx::id_type random_victim;
+  bool has_random_victim = false;
+
+  {
+    std::unique_lock<mutex_t> l(mtx);
+    if (!distributed_workpools.empty()) {
+      preferred_victim = last_remote;
+      std::uniform_int_distribution<std::size_t> rand(0, distributed_workpools.size() - 1);
+      random_victim = distributed_workpools[rand(randGenerator)];
+      has_random_victim = true;
+    }
+  }
+
+  if (has_random_victim) {
     // Last steal optimisation
-    if (last_remote != hpx::find_here()) {
-      task = hpx::async<workstealing::DepthPool::steal_action>(last_remote).get();
+    if (preferred_victim != here) {
+      task = hpx::async<workstealing::DepthPool::steal_action>(preferred_victim).get();
       if (task) {
         DepthPoolPolicyPerf::perf_distributedSteals++;
-        return hpx::bind(task, hpx::find_here());
-      } else {
-        DepthPoolPolicyPerf::perf_failedDistributedSteals++;
-        last_remote = hpx::find_here();
+        return hpx::bind(task, here);
+      }
+
+      DepthPoolPolicyPerf::perf_failedDistributedSteals++;
+      {
+        std::unique_lock<mutex_t> l(mtx);
+        if (last_remote == preferred_victim) {
+          last_remote = here;
+        }
       }
     }
 
     // If we fail the last steal then we try else where
-    std::uniform_int_distribution<int> rand(0, distributed_workpools.size() - 1);
-    auto victim = distributed_workpools.begin();
-    std::advance(victim, rand(randGenerator));
-    task = hpx::async<workstealing::DepthPool::steal_action>(*victim).get();
+    task = hpx::async<workstealing::DepthPool::steal_action>(random_victim).get();
 
     if (task) {
-      last_remote = *victim;
+      std::unique_lock<mutex_t> l(mtx);
+      last_remote = random_victim;
       DepthPoolPolicyPerf::perf_distributedSteals++;
-      return hpx::bind(task, hpx::find_here());
-    } else {
-      DepthPoolPolicyPerf::perf_failedDistributedSteals++;
+      return hpx::bind(task, here);
     }
+
+    DepthPoolPolicyPerf::perf_failedDistributedSteals++;
   }
 
   return nullptr;
