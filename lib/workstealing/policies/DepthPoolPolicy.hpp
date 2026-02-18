@@ -9,6 +9,7 @@
 
 #include "../DepthPool.hpp"
 
+#include <atomic>
 #include <random>
 #include <vector>
 
@@ -31,6 +32,7 @@ class DepthPoolPolicy : public Policy {
 
   // random number generator
   std::mt19937 randGenerator;
+  static std::atomic<bool> use_last_steal;
 
   using mutex_t = hpx::mutex;
   mutex_t mtx;
@@ -60,6 +62,14 @@ class DepthPoolPolicy : public Policy {
     decltype(&DepthPoolPolicy::setDistributedDepthPools),
     &DepthPoolPolicy::setDistributedDepthPools,
     setDistributedDepthPools_act>::type {};
+
+  static void setLastStealEnabled(bool enabled) {
+    use_last_steal.store(enabled, std::memory_order_relaxed);
+  }
+  struct setLastStealEnabled_act : hpx::actions::make_action<
+    decltype(&DepthPoolPolicy::setLastStealEnabled),
+    &DepthPoolPolicy::setLastStealEnabled,
+    setLastStealEnabled_act>::type {};
 
   static void initPolicy() {
     std::vector<hpx::future<void> > futs;

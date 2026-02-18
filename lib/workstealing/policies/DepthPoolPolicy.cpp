@@ -10,6 +10,8 @@
 
 namespace Workstealing { namespace Policies {
 
+std::atomic<bool> DepthPoolPolicy::use_last_steal{true};
+
 namespace DepthPoolPolicyPerf {
 
 std::atomic<std::uint64_t> perf_spawns(0);
@@ -101,7 +103,7 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
 
   if (has_random_victim) {
     // Last steal optimisation
-    if (preferred_victim != here) {
+    if (use_last_steal.load(std::memory_order_relaxed) && preferred_victim != here) {
       task = hpx::async<workstealing::DepthPool::steal_action>(preferred_victim).get();
       if (task) {
         DepthPoolPolicyPerf::perf_distributedSteals++;

@@ -9,6 +9,8 @@
 
 #include <hpx/hpx_init.hpp>
 #include <hpx/iostream.hpp>
+#include <hpx/modules/collectives.hpp>
+#include <hpx/runtime_distributed/find_all_localities.hpp>
 
 #include <boost/serialization/access.hpp>
 
@@ -217,6 +219,10 @@ int hpx_main(hpx::program_options::variables_map & opts) {
 
   auto spawnDepth = opts["spawn-depth"].as<std::uint64_t>();
   auto decisionBound = opts["decisionBound"].as<int>();
+  auto lastSteal = opts["last-steal"].as<int>() != 0;
+
+  hpx::wait_all(hpx::lcos::broadcast<Workstealing::Policies::DepthPoolPolicy::setLastStealEnabled_act>(
+      hpx::find_all_localities(), lastSteal));
 
   auto start_time = std::chrono::steady_clock::now();
 
@@ -377,6 +383,10 @@ int main (int argc, char* argv[]) {
     ("poolType",
      hpx::program_options::value<std::string>()->default_value("depthpool"),
      "Pool type for depthbounded skeleton")
+    ( "last-steal",
+      hpx::program_options::value<int>()->default_value(1),
+      "Enable previous-successful-victim optimization for depthpool (1=on, 0=off)"
+      )
     ( "decisionBound",
     hpx::program_options::value<int>()->default_value(0),
     "For Decision Skeletons. Size of the clique to search for"
