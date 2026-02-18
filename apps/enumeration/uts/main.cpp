@@ -1,7 +1,5 @@
 #include <hpx/hpx_init.hpp>
 #include <hpx/iostream.hpp>
-#include <hpx/modules/collectives.hpp>
-#include <hpx/runtime_distributed/find_all_localities.hpp>
 
 // We just use the default RNG for simplicity
 #define BRG_RNG
@@ -191,8 +189,7 @@ int hpx_main(hpx::program_options::variables_map & opts) {
   auto treeType   = opts["uts-t"].as<std::string>();
   auto lastSteal  = opts["last-steal"].as<int>() != 0;
 
-  hpx::wait_all(hpx::lcos::broadcast<Workstealing::Policies::DepthPoolPolicy::setLastStealEnabled_act>(
-      hpx::find_all_localities(), lastSteal));
+  Workstealing::Policies::DepthPoolPolicy::setLastStealEnabled(lastSteal);
 
   auto start_time = std::chrono::steady_clock::now();
 
