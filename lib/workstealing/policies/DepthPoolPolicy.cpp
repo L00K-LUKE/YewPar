@@ -185,9 +185,9 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
   if (has_remote) {
     // Last steal optimisation
     if (use_last_steal.load(std::memory_order_relaxed) && preferred_victim != here) {
-      DepthPoolPolicyPerf::perf_lastStealTriggers++;
       task = hpx::async<workstealing::DepthPool::steal_action>(preferred_victim).get();
       if (task) {
+        DepthPoolPolicyPerf::perf_lastStealTriggers++;
         DepthPoolPolicyPerf::perf_distributedSteals++;
         return hpx::bind(task, here);
       }
