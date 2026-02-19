@@ -10,6 +10,7 @@
 #include "../DepthPool.hpp"
 
 #include <atomic>
+#include <cstdint>
 #include <random>
 #include <vector>
 
@@ -26,9 +27,19 @@ void registerPerformanceCounters();
 class DepthPoolPolicy : public Policy {
 
  private:
+  struct RemoteDepthPool {
+    hpx::id_type pool;
+    hpx::id_type locality;
+    std::uint64_t median_rtt_ns;
+  };
+
   hpx::id_type local_workpool;
   hpx::id_type last_remote;
   std::vector<hpx::id_type> distributed_workpools;
+  std::vector<RemoteDepthPool> distributed_workpools_by_rtt;
+  std::vector<hpx::id_type> near_workpools;
+  std::vector<hpx::id_type> mid_workpools;
+  std::vector<hpx::id_type> far_workpools;
 
   // random number generator
   std::mt19937 randGenerator;
@@ -46,6 +57,12 @@ class DepthPoolPolicy : public Policy {
   void addwork(hpx::distributed::function<void(hpx::id_type)> task, unsigned depth);
 
   void registerDistributedDepthPools(std::vector<hpx::id_type> workpools);
+
+  static void ping() {}
+  struct ping_act : hpx::actions::make_action<
+    decltype(&DepthPoolPolicy::ping),
+    &DepthPoolPolicy::ping,
+    ping_act>::type {};
 
   static void setDepthPool(hpx::id_type localworkpool) {
     Workstealing::Scheduler::local_policy = std::make_shared<DepthPoolPolicy>(localworkpool);

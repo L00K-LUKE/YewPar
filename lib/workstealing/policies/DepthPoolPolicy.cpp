@@ -1,14 +1,50 @@
 #include "DepthPoolPolicy.hpp"
 
+#include <hpx/async_colocated/get_colocation_id.hpp>
 #include <hpx/functional/function.hpp>
 #include <hpx/modules/runtime_distributed.hpp>
 #include <hpx/performance_counters/manage_counter_type.hpp>
 
+#include <algorithm>
+#include <chrono>
+#include <cstddef>
 #include <memory>
+#include <utility>
+#include <vector>
 
 #include "util/util.hpp"
 
 namespace Workstealing { namespace Policies {
+
+namespace {
+
+std::uint64_t median(std::vector<std::uint64_t>& samples) {
+  if (samples.empty()) {
+    return 0;
+  }
+
+  auto mid = samples.begin() + static_cast<std::ptrdiff_t>(samples.size() / 2);
+  std::nth_element(samples.begin(), mid, samples.end());
+  return *mid;
+}
+
+std::uint64_t probeLocalityRttNs(const hpx::id_type& locality, unsigned samples = 3) {
+  std::vector<std::uint64_t> rtt_samples;
+  rtt_samples.reserve(samples);
+
+  for (unsigned i = 0; i < samples; ++i) {
+    auto start = std::chrono::steady_clock::now();
+    hpx::async<DepthPoolPolicy::ping_act>(locality).get();
+    auto stop = std::chrono::steady_clock::now();
+
+    auto rtt = std::chrono::duration_cast<std::chrono::nanoseconds>(stop - start).count();
+    rtt_samples.push_back(static_cast<std::uint64_t>(rtt));
+  }
+
+  return median(rtt_samples);
+}
+
+}
 
 std::atomic<bool> DepthPoolPolicy::use_last_steal{true};
 
@@ -88,20 +124,33 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
   }
 
   hpx::id_type preferred_victim = here;
-  hpx::id_type random_victim;
-  bool has_random_victim = false;
+  std::size_t near_start = 0;
+  std::size_t mid_start = 0;
+  std::size_t far_start = 0;
+  bool has_remote = false;
 
   {
     std::unique_lock<mutex_t> l(mtx);
-    if (!distributed_workpools.empty()) {
+    if (!distributed_workpools_by_rtt.empty()) {
       preferred_victim = last_remote;
-      std::uniform_int_distribution<std::size_t> rand(0, distributed_workpools.size() - 1);
-      random_victim = distributed_workpools[rand(randGenerator)];
-      has_random_victim = true;
+      has_remote = true;
+
+      if (!near_workpools.empty()) {
+        std::uniform_int_distribution<std::size_t> rand(0, near_workpools.size() - 1);
+        near_start = rand(randGenerator);
+      }
+      if (!mid_workpools.empty()) {
+        std::uniform_int_distribution<std::size_t> rand(0, mid_workpools.size() - 1);
+        mid_start = rand(randGenerator);
+      }
+      if (!far_workpools.empty()) {
+        std::uniform_int_distribution<std::size_t> rand(0, far_workpools.size() - 1);
+        far_start = rand(randGenerator);
+      }
     }
   }
 
-  if (has_random_victim) {
+  if (has_remote) {
     // Last steal optimisation
     if (use_last_steal.load(std::memory_order_relaxed) && preferred_victim != here) {
       task = hpx::async<workstealing::DepthPool::steal_action>(preferred_victim).get();
@@ -119,17 +168,35 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
       }
     }
 
-    // If we fail the last steal then we try else where
-    task = hpx::async<workstealing::DepthPool::steal_action>(random_victim).get();
+    auto try_tier = [&] (std::vector<hpx::id_type> const& victims, std::size_t start_idx) -> hpx::function<void(), false> {
+      if (victims.empty()) {
+        return nullptr;
+      }
 
-    if (task) {
-      std::unique_lock<mutex_t> l(mtx);
-      last_remote = random_victim;
-      DepthPoolPolicyPerf::perf_distributedSteals++;
-      return hpx::bind(task, here);
+      for (std::size_t offset = 0; offset < victims.size(); ++offset) {
+        auto const victim = victims[(start_idx + offset) % victims.size()];
+        task = hpx::async<workstealing::DepthPool::steal_action>(victim).get();
+        if (task) {
+          std::unique_lock<mutex_t> l(mtx);
+          last_remote = victim;
+          DepthPoolPolicyPerf::perf_distributedSteals++;
+          return hpx::bind(task, here);
+        }
+
+        DepthPoolPolicyPerf::perf_failedDistributedSteals++;
+      }
+      return nullptr;
+    };
+
+    if (auto stolen = try_tier(near_workpools, near_start)) {
+      return stolen;
     }
-
-    DepthPoolPolicyPerf::perf_failedDistributedSteals++;
+    if (auto stolen = try_tier(mid_workpools, mid_start)) {
+      return stolen;
+    }
+    if (auto stolen = try_tier(far_workpools, far_start)) {
+      return stolen;
+    }
   }
 
   return nullptr;
@@ -142,11 +209,60 @@ void DepthPoolPolicy::addwork(hpx::distributed::function<void(hpx::id_type)> tas
 }
 
 void DepthPoolPolicy::registerDistributedDepthPools(std::vector<hpx::id_type> workpools) {
+  workpools.erase(
+      std::remove_if(workpools.begin(), workpools.end(), YewPar::util::isColocated),
+      workpools.end());
+
+  std::vector<RemoteDepthPool> remote_workpools;
+  remote_workpools.reserve(workpools.size());
+
+  for (auto const& pool : workpools) {
+    auto locality = hpx::get_colocation_id(hpx::launch::sync, pool);
+    auto rtt_ns = probeLocalityRttNs(locality);
+    remote_workpools.push_back({pool, locality, rtt_ns});
+  }
+
+  std::sort(
+      remote_workpools.begin(),
+      remote_workpools.end(),
+      [] (RemoteDepthPool const& a, RemoteDepthPool const& b) {
+        return a.median_rtt_ns < b.median_rtt_ns;
+      });
+
+  std::vector<hpx::id_type> ordered_pool_ids;
+  ordered_pool_ids.reserve(remote_workpools.size());
+  for (auto const& remote : remote_workpools) {
+    ordered_pool_ids.push_back(remote.pool);
+  }
+
+  std::vector<hpx::id_type> near_pools;
+  std::vector<hpx::id_type> mid_pools;
+  std::vector<hpx::id_type> far_pools;
+
+  auto const n = remote_workpools.size();
+  auto const t0 = (n + 2) / 3;
+  auto const t1 = (2 * n + 2) / 3;
+  near_pools.reserve(t0);
+  mid_pools.reserve(t1 - t0);
+  far_pools.reserve(n - t1);
+
+  for (std::size_t i = 0; i < n; ++i) {
+    auto const& pool = remote_workpools[i].pool;
+    if (i < t0) {
+      near_pools.push_back(pool);
+    } else if (i < t1) {
+      mid_pools.push_back(pool);
+    } else {
+      far_pools.push_back(pool);
+    }
+  }
+
   std::unique_lock<mutex_t> l(mtx);
-  distributed_workpools = workpools;
-  distributed_workpools .erase(
-      std::remove_if(distributed_workpools.begin(), distributed_workpools.end(), YewPar::util::isColocated),
-      distributed_workpools.end());
+  distributed_workpools = std::move(ordered_pool_ids);
+  distributed_workpools_by_rtt = std::move(remote_workpools);
+  near_workpools = std::move(near_pools);
+  mid_workpools = std::move(mid_pools);
+  far_workpools = std::move(far_pools);
 }
 
 }}
