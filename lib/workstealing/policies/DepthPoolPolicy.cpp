@@ -53,6 +53,10 @@ namespace DepthPoolPolicyPerf {
 std::atomic<std::uint64_t> perf_spawns(0);
 std::atomic<std::uint64_t> perf_localSteals(0);
 std::atomic<std::uint64_t> perf_distributedSteals(0);
+std::atomic<std::uint64_t> perf_distributedNearSteals(0);
+std::atomic<std::uint64_t> perf_distributedMidSteals(0);
+std::atomic<std::uint64_t> perf_distributedFarSteals(0);
+std::atomic<std::uint64_t> perf_lastStealTriggers(0);
 std::atomic<std::uint64_t> perf_failedLocalSteals(0);
 std::atomic<std::uint64_t> perf_failedDistributedSteals(0);
 
@@ -65,8 +69,12 @@ std::uint64_t get_and_reset(std::atomic<std::uint64_t> & cntr, bool reset) {
 std::uint64_t getSpawns (bool reset) { return get_and_reset(perf_spawns, reset);}
 std::uint64_t getLocalSteals(bool reset) { return get_and_reset(perf_localSteals, reset);}
 std::uint64_t getDistributedSteals (bool reset) { return get_and_reset(perf_distributedSteals, reset);}
+std::uint64_t getLastStealTriggers(bool reset) { return get_and_reset(perf_lastStealTriggers, reset);}
 std::uint64_t getFailedLocalSteals(bool reset) { return get_and_reset(perf_failedLocalSteals, reset);}
 std::uint64_t getFailedDistributedSteals(bool reset) { return get_and_reset(perf_failedDistributedSteals, reset);}
+std::uint64_t getDistributedNearSteals (bool reset) { return get_and_reset(perf_distributedNearSteals, reset);}
+std::uint64_t getDistributedMidSteals (bool reset) { return get_and_reset(perf_distributedMidSteals, reset);}
+std::uint64_t getDistributedFarSteals (bool reset) { return get_and_reset(perf_distributedFarSteals, reset);}
 
 void registerPerformanceCounters() {
   hpx::performance_counters::install_counter_type(
@@ -88,6 +96,12 @@ void registerPerformanceCounters() {
                                                   );
 
   hpx::performance_counters::install_counter_type(
+      "/workstealing/depthpool/lastStealTriggers",
+      &getLastStealTriggers,
+      "Returns the number of times the last-steal optimisation was attempted"
+                                                  );
+
+  hpx::performance_counters::install_counter_type(
       "/workstealing/depthpool/localFailedSteals",
       &getFailedLocalSteals,
       "Returns the number of failed steals from this locality "
@@ -97,6 +111,24 @@ void registerPerformanceCounters() {
       "/workstealing/depthpool/distributedFailedSteals",
       &getFailedDistributedSteals,
       "Returns the number of failed steals from another locality "
+                                                  );
+
+  hpx::performance_counters::install_counter_type(
+      "/workstealing/depthpool/distributedNearSteals",
+      &getDistributedNearSteals,
+      "Returns the number of successful distributed steals from near localities"
+                                                  );
+
+  hpx::performance_counters::install_counter_type(
+      "/workstealing/depthpool/distributedMidSteals",
+      &getDistributedMidSteals,
+      "Returns the number of successful distributed steals from mid-distance localities"
+                                                  );
+
+  hpx::performance_counters::install_counter_type(
+      "/workstealing/depthpool/distributedFarSteals",
+      &getDistributedFarSteals,
+      "Returns the number of successful distributed steals from far localities"
                                                   );
 }
 
@@ -153,6 +185,7 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
   if (has_remote) {
     // Last steal optimisation
     if (use_last_steal.load(std::memory_order_relaxed) && preferred_victim != here) {
+      DepthPoolPolicyPerf::perf_lastStealTriggers++;
       task = hpx::async<workstealing::DepthPool::steal_action>(preferred_victim).get();
       if (task) {
         DepthPoolPolicyPerf::perf_distributedSteals++;
@@ -189,12 +222,15 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
     };
 
     if (auto stolen = try_tier(near_workpools, near_start)) {
+      DepthPoolPolicyPerf::perf_distributedNearSteals++;
       return stolen;
     }
     if (auto stolen = try_tier(mid_workpools, mid_start)) {
+      DepthPoolPolicyPerf::perf_distributedMidSteals++;
       return stolen;
     }
     if (auto stolen = try_tier(far_workpools, far_start)) {
+      DepthPoolPolicyPerf::perf_distributedFarSteals++;
       return stolen;
     }
   }
