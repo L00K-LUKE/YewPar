@@ -26,6 +26,8 @@ void registerPerformanceCounters();
 class DepthPoolPolicy : public Policy {
 
  private:
+  using task_t = hpx::distributed::function<void(hpx::id_type)>;
+
   hpx::id_type local_workpool;
   hpx::id_type last_remote;
   std::vector<hpx::id_type> distributed_workpools;
@@ -36,6 +38,14 @@ class DepthPoolPolicy : public Policy {
 
   using mutex_t = hpx::mutex;
   mutex_t mtx;
+
+  task_t getLocalTask();
+  bool tryGetLastRemoteVictim(hpx::id_type here, hpx::id_type & victim);
+  std::vector<hpx::id_type> chooseDistributedCandidates();
+  hpx::id_type chooseBestVictim(const std::vector<hpx::id_type> & candidates);
+  task_t stealTaskFrom(hpx::id_type victim);
+  void updateLastRemoteOnSuccess(hpx::id_type victim);
+  void updateLastRemoteOnFailure(hpx::id_type victim, hpx::id_type here);
 
  public:
   DepthPoolPolicy(hpx::id_type workpool);

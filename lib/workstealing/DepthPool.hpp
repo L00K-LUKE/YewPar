@@ -1,6 +1,7 @@
 #ifndef DEPTHPOOL_COMPONENT_HPP
 #define DEPTHPOOL_COMPONENT_HPP
 
+#include <cstddef>
 #include <queue>
 
 #include <hpx/include/components.hpp>
@@ -18,6 +19,7 @@ class DepthPool : public hpx::components::locking_hook<
   using fnType = hpx::distributed::function<void(hpx::id_type)>;
 
   std::vector< std::queue<fnType> > pools;
+  std::size_t tasks_available = 0;
 
   // For quicker access
   unsigned lowest = 0;
@@ -36,11 +38,14 @@ class DepthPool : public hpx::components::locking_hook<
   HPX_DEFINE_COMPONENT_ACTION(DepthPool, steal);
   void addWork(fnType task, unsigned depth);
   HPX_DEFINE_COMPONENT_ACTION(DepthPool, addWork);
+  std::size_t workRemaining();
+  HPX_DEFINE_COMPONENT_ACTION(DepthPool, workRemaining);
 };
 }
 
 HPX_REGISTER_ACTION_DECLARATION(workstealing::DepthPool::getLocal_action, DepthPool_getLocal_action);
 HPX_REGISTER_ACTION_DECLARATION(workstealing::DepthPool::steal_action, DepthPool_steal_action);
 HPX_REGISTER_ACTION_DECLARATION(workstealing::DepthPool::addWork_action, DepthPool_addWork_action);
+HPX_REGISTER_ACTION_DECLARATION(workstealing::DepthPool::workRemaining_action, DepthPool_workRemaining_action);
 
 #endif
