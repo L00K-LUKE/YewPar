@@ -10,6 +10,7 @@
 #include "../DepthPool.hpp"
 
 #include <atomic>
+#include <cstddef>
 #include <random>
 #include <vector>
 
@@ -29,6 +30,7 @@ class DepthPoolPolicy : public Policy {
   hpx::id_type local_workpool;
   hpx::id_type last_remote;
   std::vector<hpx::id_type> distributed_workpools;
+  std::size_t next_victim_index = 0;
 
   // random number generator
   std::mt19937 randGenerator;

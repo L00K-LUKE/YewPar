@@ -88,12 +88,14 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
 
   hpx::id_type preferred_victim = here;
   std::vector<hpx::id_type> victim_order;
+  std::size_t victim_start_index = 0;
 
   {
     std::unique_lock<mutex_t> l(mtx);
     if (!distributed_workpools.empty()) {
       preferred_victim = last_remote;
       victim_order = distributed_workpools;
+      victim_start_index = next_victim_index % victim_order.size();
     }
   }
 
@@ -105,6 +107,13 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
       attempted_last_victim = true;
       task = hpx::async<workstealing::DepthPool::steal_action>(preferred_victim).get();
       if (task) {
+        std::unique_lock<mutex_t> l(mtx);
+        last_remote = preferred_victim;
+        auto victim_it = std::find(victim_order.begin(), victim_order.end(), preferred_victim);
+        if (victim_it != victim_order.end()) {
+          auto victim_index = static_cast<std::size_t>(std::distance(victim_order.begin(), victim_it));
+          next_victim_index = (victim_index + 1) % victim_order.size();
+        }
         DepthPoolPolicyPerf::perf_distributedSteals++;
         return hpx::bind(task, here);
       }
@@ -119,7 +128,10 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
     }
 
     // Deterministic steal order for the remaining victims.
-    for (auto const& victim : victim_order) {
+    for (std::size_t i = 0; i < victim_order.size(); ++i) {
+      auto victim_index = (victim_start_index + i) % victim_order.size();
+      auto const& victim = victim_order[victim_index];
+
       if (victim == here || (attempted_last_victim && victim == preferred_victim)) {
         continue;
       }
@@ -128,6 +140,7 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
       if (task) {
         std::unique_lock<mutex_t> l(mtx);
         last_remote = victim;
+        next_victim_index = (victim_index + 1) % victim_order.size();
         DepthPoolPolicyPerf::perf_distributedSteals++;
         return hpx::bind(task, here);
       }
@@ -152,6 +165,7 @@ void DepthPoolPolicy::registerDistributedDepthPools(std::vector<hpx::id_type> wo
       std::remove_if(distributed_workpools.begin(), distributed_workpools.end(), YewPar::util::isColocated),
       distributed_workpools.end());
   std::shuffle(distributed_workpools.begin(), distributed_workpools.end(), randGenerator);
+  next_victim_index = 0;
 }
 
 }}
