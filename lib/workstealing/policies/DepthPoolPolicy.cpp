@@ -22,6 +22,9 @@ std::atomic<std::uint64_t> perf_localSteals(0);
 std::atomic<std::uint64_t> perf_distributedSteals(0);
 std::atomic<std::uint64_t> perf_failedLocalSteals(0);
 std::atomic<std::uint64_t> perf_failedDistributedSteals(0);
+std::atomic<std::uint64_t> perf_lifelineModeEntries(0);
+std::atomic<std::uint64_t> perf_lifelineSteals(0);
+std::atomic<std::uint64_t> perf_previousVictimSteals(0);
 
 std::uint64_t get_and_reset(std::atomic<std::uint64_t> & cntr, bool reset) {
   auto res = cntr.load();
@@ -34,6 +37,9 @@ std::uint64_t getLocalSteals(bool reset) { return get_and_reset(perf_localSteals
 std::uint64_t getDistributedSteals (bool reset) { return get_and_reset(perf_distributedSteals, reset);}
 std::uint64_t getFailedLocalSteals(bool reset) { return get_and_reset(perf_failedLocalSteals, reset);}
 std::uint64_t getFailedDistributedSteals(bool reset) { return get_and_reset(perf_failedDistributedSteals, reset);}
+std::uint64_t getLifelineModeEntries(bool reset) { return get_and_reset(perf_lifelineModeEntries, reset);}
+std::uint64_t getLifelineSteals(bool reset) { return get_and_reset(perf_lifelineSteals, reset);}
+std::uint64_t getPreviousVictimSteals(bool reset) { return get_and_reset(perf_previousVictimSteals, reset);}
 
 void registerPerformanceCounters() {
   hpx::performance_counters::install_counter_type(
@@ -64,6 +70,24 @@ void registerPerformanceCounters() {
       "/workstealing/depthpool/distributedFailedSteals",
       &getFailedDistributedSteals,
       "Returns the number of failed steals from another locality "
+                                                  );
+
+  hpx::performance_counters::install_counter_type(
+      "/workstealing/depthpool/lifelineModeEntries",
+      &getLifelineModeEntries,
+      "Returns the number of times this locality enters lifeline mode"
+                                                  );
+
+  hpx::performance_counters::install_counter_type(
+      "/workstealing/depthpool/lifelineSteals",
+      &getLifelineSteals,
+      "Returns the number of successful steals from lifeline victims"
+                                                  );
+
+  hpx::performance_counters::install_counter_type(
+      "/workstealing/depthpool/previousVictimSteals",
+      &getPreviousVictimSteals,
+      "Returns the number of successful steals from the previous successful victim"
                                                   );
 }
 
@@ -112,6 +136,9 @@ bool DepthPoolPolicy::inLifelineMode() {
 
 void DepthPoolPolicy::setLifelineMode(bool enabled) {
   std::unique_lock<mutex_t> l(mtx);
+  if (!lifeline_mode && enabled) {
+    DepthPoolPolicyPerf::perf_lifelineModeEntries++;
+  }
   lifeline_mode = enabled;
 }
 
@@ -157,6 +184,7 @@ bool DepthPoolPolicy::tryPreferredVictim(
   }
 
   if (tryRemoteVictim(state.preferred_victim, task)) {
+    DepthPoolPolicyPerf::perf_previousVictimSteals++;
     return true;
   }
 
@@ -194,6 +222,7 @@ bool DepthPoolPolicy::tryLifelineVictims(
     }
 
     if (tryRemoteVictim(victim, task)) {
+      DepthPoolPolicyPerf::perf_lifelineSteals++;
       return true;
     }
     attempted_victims.push_back(victim);
