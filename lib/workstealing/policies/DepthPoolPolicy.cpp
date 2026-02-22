@@ -60,6 +60,7 @@ std::atomic<std::uint64_t> perf_distributedNearFailedSteals(0);
 std::atomic<std::uint64_t> perf_distributedMidFailedSteals(0);
 std::atomic<std::uint64_t> perf_distributedFarFailedSteals(0);
 std::atomic<std::uint64_t> perf_lastStealTriggers(0);
+std::atomic<std::uint64_t> perf_lastStealSuccesses(0);
 std::atomic<std::uint64_t> perf_failedLocalSteals(0);
 std::atomic<std::uint64_t> perf_failedDistributedSteals(0);
 
@@ -81,6 +82,7 @@ std::uint64_t getDistributedFarSteals (bool reset) { return get_and_reset(perf_d
 std::uint64_t getDistributedNearFailedSteals (bool reset) { return get_and_reset(perf_distributedNearFailedSteals, reset);}
 std::uint64_t getDistributedMidFailedSteals (bool reset) { return get_and_reset(perf_distributedMidFailedSteals, reset);}
 std::uint64_t getDistributedFarFailedSteals (bool reset) { return get_and_reset(perf_distributedFarFailedSteals, reset);}
+std::uint64_t getLastStealSuccesses(bool reset) { return get_and_reset(perf_lastStealSuccesses, reset);}
 
 void registerPerformanceCounters() {
   hpx::performance_counters::install_counter_type(
@@ -105,6 +107,12 @@ void registerPerformanceCounters() {
       "/workstealing/depthpool/lastStealTriggers",
       &getLastStealTriggers,
       "Returns the number of times the last-steal optimisation was attempted"
+                                                  );
+
+  hpx::performance_counters::install_counter_type(
+      "/workstealing/depthpool/lastStealSuccesses",
+      &getLastStealSuccesses,
+      "Returns the number of successful steals from the previous victim locality"
                                                   );
 
   hpx::performance_counters::install_counter_type(
@@ -209,9 +217,10 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
   if (has_remote) {
     // Last steal optimisation
     if (use_last_steal.load(std::memory_order_relaxed) && preferred_victim != here) {
+      DepthPoolPolicyPerf::perf_lastStealTriggers++;
       task = hpx::async<workstealing::DepthPool::steal_action>(preferred_victim).get();
       if (task) {
-        DepthPoolPolicyPerf::perf_lastStealTriggers++;
+        DepthPoolPolicyPerf::perf_lastStealSuccesses++;
         DepthPoolPolicyPerf::perf_distributedSteals++;
         return hpx::bind(task, here);
       }
