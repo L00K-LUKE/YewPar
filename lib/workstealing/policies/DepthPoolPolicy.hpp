@@ -10,6 +10,7 @@
 #include "../DepthPool.hpp"
 
 #include <atomic>
+#include <cstddef>
 #include <random>
 #include <vector>
 
@@ -26,16 +27,53 @@ void registerPerformanceCounters();
 class DepthPoolPolicy : public Policy {
 
  private:
+  struct RemoteStealState {
+    hpx::id_type preferred_victim;
+    std::vector<hpx::id_type> random_victims;
+    std::vector<hpx::id_type> lifeline_victims;
+    bool try_last_victim = false;
+    std::size_t random_attempts = 0;
+  };
+
   hpx::id_type local_workpool;
   hpx::id_type last_remote;
   std::vector<hpx::id_type> distributed_workpools;
+  std::vector<hpx::id_type> lifeline_workpools;
 
   // random number generator
   std::mt19937 randGenerator;
   static std::atomic<bool> use_last_steal;
+  static std::atomic<std::size_t> random_steal_attempts;
+  static std::atomic<std::size_t> lifeline_degree;
 
   using mutex_t = hpx::mutex;
   mutex_t mtx;
+  bool lifeline_mode = false;
+
+  RemoteStealState prepareRemoteStealState(hpx::id_type const& here);
+  bool hasRemoteCandidates(RemoteStealState const& state) const;
+  bool inLifelineMode();
+  void setLifelineMode(bool enabled);
+  std::size_t drawRandomVictimIndex(std::size_t victim_count);
+  bool tryRemoteVictim(
+    hpx::id_type const& victim,
+    hpx::distributed::function<void(hpx::id_type)> & task);
+  void forgetPreferredVictimIfUnchanged(
+    hpx::id_type const& preferred_victim,
+    hpx::id_type const& here);
+  bool tryPreferredVictim(
+    RemoteStealState const& state,
+    hpx::id_type const& here,
+    std::vector<hpx::id_type> & attempted_victims,
+    hpx::distributed::function<void(hpx::id_type)> & task);
+  bool tryRandomVictims(
+    RemoteStealState & state,
+    std::vector<hpx::id_type> & attempted_victims,
+    hpx::distributed::function<void(hpx::id_type)> & task);
+  bool tryLifelineVictims(
+    RemoteStealState const& state,
+    std::vector<hpx::id_type> & attempted_victims,
+    hpx::distributed::function<void(hpx::id_type)> & task);
 
  public:
   DepthPoolPolicy(hpx::id_type workpool);
@@ -70,6 +108,22 @@ class DepthPoolPolicy : public Policy {
     decltype(&DepthPoolPolicy::setLastStealEnabled),
     &DepthPoolPolicy::setLastStealEnabled,
     setLastStealEnabled_act>::type {};
+
+  static void setRandomStealAttempts(std::size_t attempts) {
+    random_steal_attempts.store(attempts, std::memory_order_relaxed);
+  }
+  struct setRandomStealAttempts_act : hpx::actions::make_action<
+    decltype(&DepthPoolPolicy::setRandomStealAttempts),
+    &DepthPoolPolicy::setRandomStealAttempts,
+    setRandomStealAttempts_act>::type {};
+
+  static void setLifelineDegree(std::size_t degree) {
+    lifeline_degree.store(degree, std::memory_order_relaxed);
+  }
+  struct setLifelineDegree_act : hpx::actions::make_action<
+    decltype(&DepthPoolPolicy::setLifelineDegree),
+    &DepthPoolPolicy::setLifelineDegree,
+    setLifelineDegree_act>::type {};
 
   static void initPolicy() {
     std::vector<hpx::future<void> > futs;

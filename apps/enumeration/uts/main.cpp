@@ -188,8 +188,14 @@ int hpx_main(hpx::program_options::variables_map & opts) {
   auto skeleton   = opts["skeleton"].as<std::string>();
   auto treeType   = opts["uts-t"].as<std::string>();
   auto lastSteal  = opts["last-steal"].as<int>() != 0;
+  auto randomStealAttempts = opts["random-steal-attempts"].as<std::uint64_t>();
+  auto lifelineDegree = opts["lifeline-degree"].as<std::uint64_t>();
 
   Workstealing::Policies::DepthPoolPolicy::setLastStealEnabled(lastSteal);
+  Workstealing::Policies::DepthPoolPolicy::setRandomStealAttempts(
+    static_cast<std::size_t>(randomStealAttempts));
+  Workstealing::Policies::DepthPoolPolicy::setLifelineDegree(
+    static_cast<std::size_t>(lifelineDegree));
 
   auto start_time = std::chrono::steady_clock::now();
 
@@ -312,6 +318,14 @@ int main(int argc, char* argv[]) {
       ( "last-steal",
         hpx::program_options::value<int>()->default_value(1),
         "Enable previous-successful-victim optimization for depthpool (1=on, 0=off)"
+        )
+      ( "random-steal-attempts",
+        hpx::program_options::value<std::uint64_t>()->default_value(2),
+        "Number of random distributed steal attempts before trying lifeline victims"
+        )
+      ( "lifeline-degree",
+        hpx::program_options::value<std::uint64_t>()->default_value(2),
+        "Number of deterministic lifeline victims tracked per locality"
         )
       ("chunked", "Use chunking with stack stealing")
       // UTS Options
