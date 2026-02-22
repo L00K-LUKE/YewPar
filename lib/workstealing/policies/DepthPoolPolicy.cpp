@@ -17,6 +17,7 @@ namespace DepthPoolPolicyPerf {
 std::atomic<std::uint64_t> perf_spawns(0);
 std::atomic<std::uint64_t> perf_localSteals(0);
 std::atomic<std::uint64_t> perf_distributedSteals(0);
+std::atomic<std::uint64_t> perf_lastStealSuccesses(0);
 std::atomic<std::uint64_t> perf_failedLocalSteals(0);
 std::atomic<std::uint64_t> perf_failedDistributedSteals(0);
 
@@ -29,6 +30,7 @@ std::uint64_t get_and_reset(std::atomic<std::uint64_t> & cntr, bool reset) {
 std::uint64_t getSpawns (bool reset) { return get_and_reset(perf_spawns, reset);}
 std::uint64_t getLocalSteals(bool reset) { return get_and_reset(perf_localSteals, reset);}
 std::uint64_t getDistributedSteals (bool reset) { return get_and_reset(perf_distributedSteals, reset);}
+std::uint64_t getLastStealSuccesses(bool reset) { return get_and_reset(perf_lastStealSuccesses, reset);}
 std::uint64_t getFailedLocalSteals(bool reset) { return get_and_reset(perf_failedLocalSteals, reset);}
 std::uint64_t getFailedDistributedSteals(bool reset) { return get_and_reset(perf_failedDistributedSteals, reset);}
 
@@ -49,6 +51,12 @@ void registerPerformanceCounters() {
       "/workstealing/depthpool/distributedSteals",
       &getDistributedSteals,
       "Returns the number of tasks stolen from another thread on another locality"
+                                                  );
+
+  hpx::performance_counters::install_counter_type(
+      "/workstealing/depthpool/lastStealSuccesses",
+      &getLastStealSuccesses,
+      "Returns the number of successful steals from the previous victim locality"
                                                   );
 
   hpx::performance_counters::install_counter_type(
@@ -107,6 +115,7 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
       task = hpx::async<workstealing::DepthPool::steal_action>(preferred_victim).get();
       if (task) {
         DepthPoolPolicyPerf::perf_distributedSteals++;
+        DepthPoolPolicyPerf::perf_lastStealSuccesses++;
         return hpx::bind(task, here);
       }
 
