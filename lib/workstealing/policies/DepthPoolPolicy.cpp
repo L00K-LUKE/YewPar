@@ -24,7 +24,7 @@ std::atomic<std::uint64_t> perf_failedLocalSteals(0);
 std::atomic<std::uint64_t> perf_failedDistributedSteals(0);
 std::atomic<std::uint64_t> perf_lifelineModeEntries(0);
 std::atomic<std::uint64_t> perf_lifelineSteals(0);
-std::atomic<std::uint64_t> perf_previousVictimSteals(0);
+std::atomic<std::uint64_t> perf_lastStealSuccesses(0);
 
 std::uint64_t get_and_reset(std::atomic<std::uint64_t> & cntr, bool reset) {
   auto res = cntr.load();
@@ -39,7 +39,7 @@ std::uint64_t getFailedLocalSteals(bool reset) { return get_and_reset(perf_faile
 std::uint64_t getFailedDistributedSteals(bool reset) { return get_and_reset(perf_failedDistributedSteals, reset);}
 std::uint64_t getLifelineModeEntries(bool reset) { return get_and_reset(perf_lifelineModeEntries, reset);}
 std::uint64_t getLifelineSteals(bool reset) { return get_and_reset(perf_lifelineSteals, reset);}
-std::uint64_t getPreviousVictimSteals(bool reset) { return get_and_reset(perf_previousVictimSteals, reset);}
+std::uint64_t getlastStealSuccesses(bool reset) { return get_and_reset(perf_lastStealSuccesses, reset);}
 
 void registerPerformanceCounters() {
   hpx::performance_counters::install_counter_type(
@@ -85,8 +85,8 @@ void registerPerformanceCounters() {
                                                   );
 
   hpx::performance_counters::install_counter_type(
-      "/workstealing/depthpool/previousVictimSteals",
-      &getPreviousVictimSteals,
+      "/workstealing/depthpool/lastStealSuccesses",
+      &getlastStealSuccesses,
       "Returns the number of successful steals from the previous successful victim"
                                                   );
 }
@@ -184,7 +184,7 @@ bool DepthPoolPolicy::tryPreferredVictim(
   }
 
   if (tryRemoteVictim(state.preferred_victim, task)) {
-    DepthPoolPolicyPerf::perf_previousVictimSteals++;
+    DepthPoolPolicyPerf::perf_lastStealSuccesses++;
     return true;
   }
 
