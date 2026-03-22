@@ -235,7 +235,16 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
   auto here = hpx::find_here();
   hpx::distributed::function<void(hpx::id_type)> task;
 
-  // Lifeline mode skips local and remote random steals.
+  // Local steal attempt.
+  task = hpx::async<workstealing::DepthPool::getLocal_action>(local_workpool).get();
+  if (task) {
+    setLifelineMode(false);
+    DepthPoolPolicyPerf::perf_localSteals++;
+    return hpx::bind(task, here);
+  }
+  DepthPoolPolicyPerf::perf_failedLocalSteals++;
+
+  // Lifeline mode skips remote random steals.
   if (inLifelineMode()) {
     auto state = prepareRemoteStealState(here);
     if (!state.lifeline_victims.empty()) {
@@ -252,14 +261,6 @@ hpx::function<void(), false> DepthPoolPolicy::getWork() {
     setLifelineMode(false);
   }
 
-  // Local steal attempt.
-  task = hpx::async<workstealing::DepthPool::getLocal_action>(local_workpool).get();
-  if (task) {
-    setLifelineMode(false);
-    DepthPoolPolicyPerf::perf_localSteals++;
-    return hpx::bind(task, here);
-  }
-  DepthPoolPolicyPerf::perf_failedLocalSteals++;
 
   // Remote steal attempts.
   auto state = prepareRemoteStealState(here);
